@@ -77,6 +77,19 @@ def _run_sync() -> None:
 
 
 def start_sync(force: bool = False) -> dict[str, Any]:
+    if not config.EMAIL_SYNC_ENABLED:
+        return {
+            "ok": False,
+            "started": False,
+            "error": "Sincronización de correo desactivada",
+        }
+    if not config.EMAIL_ACCOUNTS:
+        return {
+            "ok": False,
+            "started": False,
+            "error": "Correo no configurado",
+        }
+
     with _lock:
         if _state["running"] and not force:
             return {"ok": True, "started": False, "message": "Sincronización en curso"}

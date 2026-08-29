@@ -82,6 +82,7 @@ curl -s -X PUT -H "Authorization: Bearer $RENDER_API_KEY" \
     {\"key\":\"IMAP_SERVER\",\"value\":\"${IMAP_SERVER:-imap.servidor-correo.net}\"},
     {\"key\":\"IMAP_PORT\",\"value\":\"${IMAP_PORT:-993}\"},
     {\"key\":\"AUTO_SYNC_HOURS\",\"value\":\"${AUTO_SYNC_HOURS:-4}\"},
+    {\"key\":\"EMAIL_SYNC_ENABLED\",\"value\":\"${EMAIL_SYNC_ENABLED:-false}\"},
     {\"key\":\"CRON_SECRET\",\"value\":\"$CRON_SECRET\"}
   ]" \
   "https://api.render.com/v1/services/$SERVICE_ID/env-vars" >/dev/null

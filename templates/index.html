@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="/static/app.css">
   <title>Facturas — Talleres Catala</title>
 </head>
-<body data-page="facturas">
+<body data-page="facturas" data-manual-mode="{{ 'true' if manual_mode else 'false' }}">
   <div class="container">
     <header>
       <div class="brand">
@@ -25,15 +25,31 @@
       </div>
       <div class="header-actions-desktop">
         <a href="/trimestres" class="btn btn-secondary">Trimestres Hacienda</a>
+        {% if manual_mode %}
+        <button id="uploadBtnDesktop" type="button">Subir factura PDF</button>
+        {% else %}
         <button id="syncBtnDesktop" {% if not configured %}disabled{% endif %}>Sincronizar correo</button>
+        {% endif %}
       </div>
       <div class="header-actions-mobile">
+        {% if manual_mode %}
+        <button id="uploadBtnMobile" type="button">Subir factura PDF</button>
+        {% else %}
         <button id="syncBtnMobile" {% if not configured %}disabled{% endif %}>Sincronizar correo</button>
+        {% endif %}
       </div>
     </header>
 
+    <input type="file" id="pdfInput" accept=".pdf,application/pdf" multiple hidden>
+
+    {% if manual_mode %}
+    <div class="note">
+      Modo manual: sube los PDF de tus facturas desde el iPhone. No hace falta conectar con Hostalia.
+    </div>
+    {% endif %}
+
     <div id="syncPanel" class="sync-panel">
-      <h3>Sincronizando correo…</h3>
+      <h3 id="syncPanelTitle">Sincronizando correo…</h3>
       <div class="sync-meta" id="syncMeta">Preparando…</div>
       <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
     </div>
@@ -129,7 +145,7 @@
           </tbody>
         </table>
         {% else %}
-        <div class="empty">No hay facturas todavía.<br>Pulsa <strong>Sincronizar correo</strong> para leer Hostalia.</div>
+        <div class="empty">No hay facturas todavía.<br>{% if manual_mode %}Pulsa <strong>Subir factura PDF</strong> para añadir una.{% else %}Pulsa <strong>Sincronizar correo</strong> para leer Hostalia.{% endif %}</div>
         {% endif %}
       </div>
     </div>
@@ -144,10 +160,17 @@
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
       Trimestres
     </a>
+    {% if manual_mode %}
+    <button type="button" class="nav-sync" id="uploadBtnNav">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 12V4m0 0l-4 4m4-4l4 4"/></svg>
+      Subir PDF
+    </button>
+    {% else %}
     <button type="button" class="nav-sync" id="syncBtnNav" {% if not configured %}disabled{% endif %}>
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
       Sincronizar
     </button>
+    {% endif %}
   </nav>
 
   <div class="toast" id="toast"></div>
@@ -157,7 +180,10 @@
     const syncPanel = document.getElementById('syncPanel');
     const syncMeta = document.getElementById('syncMeta');
     const progressFill = document.getElementById('progressFill');
-    const syncBtns = ['syncBtnDesktop','syncBtnMobile','syncBtnNav'].map(id => document.getElementById(id)).filter(Boolean);
+    const manualMode = document.body.dataset.manualMode === 'true';
+    const pdfInput = document.getElementById('pdfInput');
+    const uploadBtns = ['uploadBtnDesktop','uploadBtnMobile','uploadBtnNav'].map(id => document.getElementById(id)).filter(Boolean);
+    const syncBtns = manualMode ? [] : ['syncBtnDesktop','syncBtnMobile','syncBtnNav'].map(id => document.getElementById(id)).filter(Boolean);
     let pollTimer = null;
     let currentFilter = 'all';
 
@@ -199,7 +225,7 @@
       document.getElementById('invoiceCount').textContent = `${invoices.length} facturas`;
       const wrap = document.getElementById('tableWrap');
       if (!invoices.length) {
-        wrap.innerHTML = '<div class="empty">No hay facturas todavía.<br>Pulsa <strong>Sincronizar correo</strong> para leer Hostalia.</div>';
+        wrap.innerHTML = `<div class="empty">No hay facturas todavía.<br>Pulsa <strong>${manualMode ? 'Subir factura PDF' : 'Sincronizar correo'}</strong>.</div>`;
         return;
       }
       const cards = invoices.map(inv => {
@@ -344,12 +370,51 @@
 
     syncBtns.forEach(b => b.addEventListener('click', doSync));
 
-    fetch('/api/sync/status').then(r => r.json()).then(data => {
-      if (data.running) {
-        setSyncUi(true);
-        pollSync();
+    async function uploadPdfs(fileList) {
+      if (!fileList || !fileList.length) return;
+      uploadBtns.forEach(b => { b.disabled = true; });
+      syncPanel.classList.add('active');
+      document.getElementById('syncPanelTitle').textContent = 'Procesando PDFs…';
+      progressFill.style.width = '30%';
+      syncMeta.textContent = `Subiendo ${fileList.length} archivo(s)…`;
+
+      const fd = new FormData();
+      for (const file of fileList) fd.append('pdfs', file);
+
+      try {
+        const res = await fetch('/api/invoices/upload', { method: 'POST', body: fd });
+        const data = await res.json();
+        progressFill.style.width = '100%';
+        if (data.ok) {
+          updateSummary(data.summary);
+          renderInvoices(data.invoices);
+          const msg = `${data.added} nuevas` + (data.updated ? `, ${data.updated} actualizadas` : '');
+          showToast(msg);
+          if (data.errors && data.errors.length) showToast(data.errors[0], 'error');
+        } else {
+          showToast(data.error || 'Error al subir', 'error');
+        }
+      } catch {
+        showToast('Error de conexión', 'error');
+      } finally {
+        uploadBtns.forEach(b => { b.disabled = false; });
+        pdfInput.value = '';
+        setTimeout(() => syncPanel.classList.remove('active'), 1200);
       }
-    });
+    }
+
+    function pickPdf() { pdfInput.click(); }
+    uploadBtns.forEach(b => b.addEventListener('click', pickPdf));
+    pdfInput.addEventListener('change', () => uploadPdfs(pdfInput.files));
+
+    if (!manualMode) {
+      fetch('/api/sync/status').then(r => r.json()).then(data => {
+        if (data.running) {
+          setSyncUi(true);
+          pollSync();
+        }
+      });
+    }
   </script>
 </body>
 </html>

@@ -15,6 +15,14 @@ IMAP_PORT = int(os.getenv("IMAP_PORT", "993"))
 
 RECIPIENT_NAME = os.getenv("RECIPIENT_NAME", "")
 
+# Si false, la app funciona solo con subida manual de PDFs (sin Hostalia)
+EMAIL_SYNC_ENABLED = os.getenv("EMAIL_SYNC_ENABLED", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
 DATABASE_PATH = BASE_DIR / "data" / "facturas.db"
 PDF_DIR = DATA_DIR / "pdfs"
 PDF_DIR.mkdir(parents=True, exist_ok=True)

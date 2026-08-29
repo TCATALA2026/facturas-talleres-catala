@@ -24,6 +24,12 @@ def start_scheduler() -> None:
     if hours <= 0 or _scheduler is not None:
         return
 
+    import config
+
+    if not config.EMAIL_SYNC_ENABLED or not config.EMAIL_ACCOUNTS:
+        logger.info("Sincronización de correo desactivada — modo manual")
+        return
+
     _scheduler = BackgroundScheduler(daemon=True)
     _scheduler.add_job(_run_sync, "interval", hours=hours, id="email_sync")
     _scheduler.add_job(_run_sync, "date", id="startup_sync")  # una vez al arrancar

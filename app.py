@@ -33,15 +33,19 @@ def setup():
 
 @app.route("/api/config")
 def api_config():
+    email_configured = bool(
+        config.EMAIL_ACCOUNTS
+        and all(a["password"] for a in config.EMAIL_ACCOUNTS)
+        and config.RECIPIENT_NAME
+    )
     return jsonify(
         {
             "recipient_name": config.RECIPIENT_NAME,
             "email_addresses": config.EMAIL_ADDRESSES,
-            "configured": bool(
-                config.EMAIL_ACCOUNTS
-                and all(a["password"] for a in config.EMAIL_ACCOUNTS)
-                and config.RECIPIENT_NAME
-            ),
+            "email_sync_enabled": config.EMAIL_SYNC_ENABLED,
+            "email_configured": email_configured,
+            "configured": email_configured and config.EMAIL_SYNC_ENABLED,
+            "manual_mode": not config.EMAIL_SYNC_ENABLED,
         }
     )
 
@@ -70,7 +74,7 @@ def service_worker():
 def index():
     invoices = database.get_all_invoices()
     summary = database.get_summary()
-    configured = bool(
+    email_configured = bool(
         config.EMAIL_ACCOUNTS
         and all(a["password"] for a in config.EMAIL_ACCOUNTS)
         and config.RECIPIENT_NAME
@@ -79,7 +83,9 @@ def index():
         "index.html",
         invoices=invoices,
         summary=summary,
-        configured=configured,
+        configured=email_configured and config.EMAIL_SYNC_ENABLED,
+        manual_mode=not config.EMAIL_SYNC_ENABLED,
+        email_sync_enabled=config.EMAIL_SYNC_ENABLED,
         email_addresses=config.EMAIL_ADDRESSES,
         recipient_name=config.RECIPIENT_NAME,
     )
@@ -91,6 +97,61 @@ def api_invoices():
         {
             "invoices": database.get_all_invoices(),
             "summary": database.get_summary(),
+        }
+    )
+
+
+@app.route("/api/invoices/upload", methods=["POST"])
+def upload_invoices():
+    from pdf_import import PdfImportError, parse_uploaded_pdf
+    from sync_service import save_invoice_pdf
+
+    files = request.files.getlist("pdfs") or request.files.getlist("pdf")
+    if not files:
+        single = request.files.get("file")
+        if single:
+            files = [single]
+
+    if not files:
+        return jsonify({"ok": False, "error": "No se recibió ningún PDF"}), 400
+
+    added = 0
+    updated = 0
+    errors: list[str] = []
+
+    for uploaded in files:
+        if not uploaded or not uploaded.filename:
+            continue
+        if not uploaded.filename.lower().endswith(".pdf"):
+            errors.append(f"{uploaded.filename}: solo se admiten PDF")
+            continue
+        try:
+            pdf_bytes = uploaded.read()
+            invoice = parse_uploaded_pdf(pdf_bytes, uploaded.filename)
+            invoice["pdf_filename"] = save_invoice_pdf(
+                invoice["email_uid"], pdf_bytes
+            )
+            invoice.pop("pdf_bytes", None)
+            if database.upsert_invoice(invoice):
+                added += 1
+            else:
+                updated += 1
+        except PdfImportError as exc:
+            errors.append(f"{uploaded.filename}: {exc}")
+        except Exception as exc:
+            errors.append(f"{uploaded.filename}: error al procesar")
+
+    if added == 0 and updated == 0 and errors:
+        return jsonify({"ok": False, "error": errors[0], "errors": errors}), 400
+
+    return jsonify(
+        {
+            "ok": True,
+            "added": added,
+            "updated": updated,
+            "errors": errors,
+            "summary": database.get_summary(),
+            "invoices": database.get_all_invoices(),
         }
     )
 
@@ -178,6 +239,8 @@ def export_trimestres_csv():
 @app.route("/api/cron/sync")
 def cron_sync():
     """Para servicios externos (cron-job.org) que mantienen el servidor activo."""
+    if not config.EMAIL_SYNC_ENABLED:
+        return jsonify({"ok": True, "skipped": True, "reason": "manual_mode"})
     secret = os.getenv("CRON_SECRET", "")
     if secret and request.headers.get("X-Cron-Secret") != secret:
         return jsonify({"ok": False, "error": "No autorizado"}), 403
