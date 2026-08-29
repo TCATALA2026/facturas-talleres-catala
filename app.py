@@ -21,6 +21,8 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    if response.content_type and "text/html" in response.content_type:
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     return response
 
 

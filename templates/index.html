@@ -25,28 +25,20 @@
       </div>
       <div class="header-actions-desktop">
         <a href="/trimestres" class="btn btn-secondary">Trimestres Hacienda</a>
-        {% if manual_mode %}
-        <button id="uploadBtnDesktop" type="button">Subir factura PDF</button>
-        {% else %}
-        <button id="syncBtnDesktop" {% if not configured %}disabled{% endif %}>Sincronizar correo</button>
-        {% endif %}
+        <button id="uploadBtnDesktop" class="mode-manual" type="button">Subir factura PDF</button>
+        <button id="syncBtnDesktop" class="mode-sync" type="button">Sincronizar correo</button>
       </div>
       <div class="header-actions-mobile">
-        {% if manual_mode %}
-        <button id="uploadBtnMobile" type="button">Subir factura PDF</button>
-        {% else %}
-        <button id="syncBtnMobile" {% if not configured %}disabled{% endif %}>Sincronizar correo</button>
-        {% endif %}
+        <button id="uploadBtnMobile" class="mode-manual" type="button">Subir factura PDF</button>
+        <button id="syncBtnMobile" class="mode-sync" type="button">Sincronizar correo</button>
       </div>
     </header>
 
     <input type="file" id="pdfInput" accept=".pdf,application/pdf" multiple hidden>
 
-    {% if manual_mode %}
-    <div class="note">
+    <div id="manualNote" class="note mode-manual">
       Modo manual: sube los PDF de tus facturas desde el iPhone. No hace falta conectar con Hostalia.
     </div>
-    {% endif %}
 
     <div id="syncPanel" class="sync-panel">
       <h3 id="syncPanelTitle">Sincronizando correo…</h3>
@@ -145,7 +137,7 @@
           </tbody>
         </table>
         {% else %}
-        <div class="empty">No hay facturas todavía.<br>{% if manual_mode %}Pulsa <strong>Subir factura PDF</strong> para añadir una.{% else %}Pulsa <strong>Sincronizar correo</strong> para leer Hostalia.{% endif %}</div>
+        <div class="empty" id="emptyState">No hay facturas todavía.<br>Pulsa <strong>Subir factura PDF</strong> para añadir una.</div>
         {% endif %}
       </div>
     </div>
@@ -160,17 +152,14 @@
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
       Trimestres
     </a>
-    {% if manual_mode %}
-    <button type="button" class="nav-sync" id="uploadBtnNav">
+    <button type="button" class="nav-sync mode-manual" id="uploadBtnNav">
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 12V4m0 0l-4 4m4-4l4 4"/></svg>
       Subir PDF
     </button>
-    {% else %}
-    <button type="button" class="nav-sync" id="syncBtnNav" {% if not configured %}disabled{% endif %}>
+    <button type="button" class="nav-sync mode-sync" id="syncBtnNav">
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
       Sincronizar
     </button>
-    {% endif %}
   </nav>
 
   <div class="toast" id="toast"></div>
@@ -180,12 +169,46 @@
     const syncPanel = document.getElementById('syncPanel');
     const syncMeta = document.getElementById('syncMeta');
     const progressFill = document.getElementById('progressFill');
-    const manualMode = document.body.dataset.manualMode === 'true';
+    let manualMode = document.body.dataset.manualMode === 'true';
+    let syncConfigured = false;
     const pdfInput = document.getElementById('pdfInput');
-    const uploadBtns = ['uploadBtnDesktop','uploadBtnMobile','uploadBtnNav'].map(id => document.getElementById(id)).filter(Boolean);
-    const syncBtns = manualMode ? [] : ['syncBtnDesktop','syncBtnMobile','syncBtnNav'].map(id => document.getElementById(id)).filter(Boolean);
+    let uploadBtns = [];
+    let syncBtns = [];
     let pollTimer = null;
     let currentFilter = 'all';
+
+    function applyAppMode() {
+      document.querySelectorAll('.mode-manual').forEach(el => {
+        el.style.display = manualMode ? '' : 'none';
+      });
+      document.querySelectorAll('.mode-sync').forEach(el => {
+        el.style.display = manualMode ? 'none' : '';
+      });
+      uploadBtns = ['uploadBtnDesktop','uploadBtnMobile','uploadBtnNav']
+        .map(id => document.getElementById(id)).filter(Boolean);
+      syncBtns = ['syncBtnDesktop','syncBtnMobile','syncBtnNav']
+        .map(id => document.getElementById(id)).filter(Boolean);
+      syncBtns.forEach(b => { b.disabled = !syncConfigured; });
+
+      const empty = document.getElementById('emptyState');
+      if (empty) {
+        empty.innerHTML = manualMode
+          ? 'No hay facturas todavía.<br>Pulsa <strong>Subir factura PDF</strong> para añadir una.'
+          : 'No hay facturas todavía.<br>Pulsa <strong>Sincronizar correo</strong> para leer Hostalia.';
+      }
+    }
+
+    async function loadAppConfig() {
+      try {
+        const cfg = await fetch('/api/config').then(r => r.json());
+        manualMode = !!cfg.manual_mode;
+        syncConfigured = !!cfg.configured;
+        document.body.dataset.manualMode = manualMode ? 'true' : 'false';
+        applyAppMode();
+      } catch {
+        applyAppMode();
+      }
+    }
 
     function showToast(msg, type = 'success') {
       toast.textContent = msg;
@@ -309,7 +332,7 @@
     bindStatusSelects();
 
     function setSyncUi(running) {
-      syncBtns.forEach(b => { b.disabled = running || {{ 'false' if configured else 'true' }}; });
+      syncBtns.forEach(b => { b.disabled = running || !syncConfigured; });
       syncPanel.classList.toggle('active', running);
     }
 
@@ -350,6 +373,11 @@
     }
 
     async function doSync() {
+      if (manualMode) {
+        showToast('Modo manual activo — usa Subir PDF', 'error');
+        pickPdf();
+        return;
+      }
       setSyncUi(true);
       progressFill.style.width = '5%';
       syncMeta.textContent = 'Conectando con Hostalia…';
@@ -358,7 +386,7 @@
         const data = await res.json();
         if (!data.ok) {
           setSyncUi(false);
-          showToast('No se pudo iniciar', 'error');
+          showToast(data.error || 'Correo no disponible. Usa Subir PDF.', 'error');
           return;
         }
         pollSync();
@@ -404,17 +432,27 @@
     }
 
     function pickPdf() { pdfInput.click(); }
-    uploadBtns.forEach(b => b.addEventListener('click', pickPdf));
-    pdfInput.addEventListener('change', () => uploadPdfs(pdfInput.files));
 
-    if (!manualMode) {
-      fetch('/api/sync/status').then(r => r.json()).then(data => {
-        if (data.running) {
-          setSyncUi(true);
-          pollSync();
-        }
-      });
+    function bindActions() {
+      syncBtns.forEach(b => b.replaceWith(b.cloneNode(true)));
+      uploadBtns.forEach(b => b.replaceWith(b.cloneNode(true)));
+      applyAppMode();
+      syncBtns.forEach(b => b.addEventListener('click', doSync));
+      uploadBtns.forEach(b => b.addEventListener('click', pickPdf));
+      pdfInput.onchange = () => uploadPdfs(pdfInput.files);
     }
+
+    loadAppConfig().then(() => {
+      bindActions();
+      if (!manualMode) {
+        fetch('/api/sync/status').then(r => r.json()).then(data => {
+          if (data.running) {
+            setSyncUi(true);
+            pollSync();
+          }
+        });
+      }
+    });
   </script>
 </body>
 </html>

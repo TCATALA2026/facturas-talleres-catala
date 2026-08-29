@@ -1,8 +1,8 @@
-const CACHE = 'facturas-v1';
-const ASSETS = ['/', '/trimestres', '/static/app.css', '/static/pwa.js', '/manifest.webmanifest'];
+const CACHE = 'facturas-v3';
+const STATIC_ASSETS = ['/static/app.css', '/static/pwa.js', '/static/icons/icon-192.png', '/manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)));
+  e.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(STATIC_ASSETS)));
   self.skipWaiting();
 });
 
@@ -20,13 +20,24 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (url.pathname.startsWith('/api/')) return;
 
+  // HTML siempre desde red (evita versión antigua en caché)
+  if (e.request.mode === 'navigate' || url.pathname === '/' || url.pathname === '/trimestres') {
+    e.respondWith(
+      fetch(e.request).catch(() => caches.match('/'))
+    );
+    return;
+  }
+
   e.respondWith(
-    fetch(e.request)
-      .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((cache) => cache.put(e.request, copy));
+    caches.match(e.request).then((cached) => {
+      const network = fetch(e.request).then((res) => {
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then((cache) => cache.put(e.request, copy));
+        }
         return res;
-      })
-      .catch(() => caches.match(e.request).then((r) => r || caches.match('/')))
+      });
+      return cached || network;
+    })
   );
 });
