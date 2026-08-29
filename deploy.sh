@@ -73,19 +73,19 @@ fi
 
 set -a; source .env 2>/dev/null; set +a
 
-set_env() {
-  curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
-    -H "Content-Type: application/json" \
-    -d "{\"envVar\":{\"key\":\"$1\",\"value\":\"$2\"}}" \
-    "https://api.render.com/v1/services/$SERVICE_ID/env-vars" >/dev/null
-}
-
-set_env EMAIL_ACCOUNTS "${EMAIL_ACCOUNTS:-}"
-set_env RECIPIENT_NAME "${RECIPIENT_NAME:-Talleres Catala Automotive SL}"
-set_env IMAP_SERVER "${IMAP_SERVER:-imap.servidor-correo.net}"
-set_env IMAP_PORT "${IMAP_PORT:-993}"
-set_env AUTO_SYNC_HOURS "${AUTO_SYNC_HOURS:-4}"
-set_env CRON_SECRET "${CRON_SECRET:-deploy-secret-$(date +%s)}"
+CRON_SECRET="${CRON_SECRET:-deploy-secret-$(date +%s)}"
+curl -s -X PUT -H "Authorization: Bearer $RENDER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "[
+    {\"key\":\"EMAIL_ACCOUNTS\",\"value\":\"${EMAIL_ACCOUNTS:-}\"},
+    {\"key\":\"RECIPIENT_NAME\",\"value\":\"${RECIPIENT_NAME:-Talleres Catala Automotive SL}\"},
+    {\"key\":\"IMAP_SERVER\",\"value\":\"${IMAP_SERVER:-imap.servidor-correo.net}\"},
+    {\"key\":\"IMAP_PORT\",\"value\":\"${IMAP_PORT:-993}\"},
+    {\"key\":\"AUTO_SYNC_HOURS\",\"value\":\"${AUTO_SYNC_HOURS:-4}\"},
+    {\"key\":\"CRON_SECRET\",\"value\":\"$CRON_SECRET\"}
+  ]" \
+  "https://api.render.com/v1/services/$SERVICE_ID/env-vars" >/dev/null
+echo "→ Variables de entorno configuradas"
 
 echo ""
 echo "✅ Desplegado: https://${REPO_NAME}.onrender.com"
