@@ -1,11 +1,11 @@
 import os
 
-from flask import Flask, Response, jsonify, render_template, request, send_from_directory
+from flask import Flask, Response, jsonify, render_template, request, send_file, send_from_directory
 
 import config
 import database
-from email_client import EmailSyncError, fetch_invoices_from_mailbox
 from scheduler import start_scheduler
+from sync_service import get_sync_status, start_sync
 
 app = Flask(__name__, static_folder="static")
 
@@ -97,26 +97,41 @@ def api_invoices():
 
 @app.route("/api/sync", methods=["POST"])
 def api_sync():
-    try:
-        result = fetch_invoices_from_mailbox()
-        new_count = 0
-        for invoice in result["invoices"]:
-            if database.upsert_invoice(invoice):
-                new_count += 1
-        return jsonify(
-            {
-                "ok": True,
-                "scanned": result["scanned"],
-                "pdfs_checked": result["pdfs_checked"],
-                "invoices_found": len(result["invoices"]),
-                "accounts": result.get("accounts", []),
-                "new": new_count,
-                "summary": database.get_summary(),
-                "invoices": database.get_all_invoices(),
-            }
-        )
-    except EmailSyncError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+    result = start_sync()
+    return jsonify(result)
+
+
+@app.route("/api/sync/status")
+def api_sync_status():
+    status = get_sync_status()
+    payload = {
+        **status,
+        "summary": database.get_summary(),
+        "invoices": database.get_all_invoices() if not status.get("running") else None,
+    }
+    return jsonify(payload)
+
+
+@app.route("/api/invoices/<int:invoice_id>/pdf")
+def download_invoice_pdf(invoice_id: int):
+    invoice = database.get_invoice(invoice_id)
+    if not invoice or not invoice.get("pdf_filename"):
+        return jsonify({"ok": False, "error": "PDF no disponible"}), 404
+
+    pdf_path = config.DATA_DIR / invoice["pdf_filename"]
+    if not pdf_path.exists():
+        return jsonify({"ok": False, "error": "Archivo no encontrado"}), 404
+
+    download_name = invoice.get("pdf_original_name") or f"factura_{invoice_id}.pdf"
+    if not download_name.lower().endswith(".pdf"):
+        download_name += ".pdf"
+
+    return send_file(
+        pdf_path,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=download_name,
+    )
 
 
 @app.route("/trimestres")
@@ -166,12 +181,8 @@ def cron_sync():
     secret = os.getenv("CRON_SECRET", "")
     if secret and request.headers.get("X-Cron-Secret") != secret:
         return jsonify({"ok": False, "error": "No autorizado"}), 403
-    try:
-        result = fetch_invoices_from_mailbox()
-        new_count = sum(1 for inv in result["invoices"] if database.upsert_invoice(inv))
-        return jsonify({"ok": True, "new": new_count, "scanned": result["scanned"]})
-    except EmailSyncError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+    result = start_sync()
+    return jsonify(result)
 
 
 @app.route("/api/invoices/<int:invoice_id>/status", methods=["PATCH"])

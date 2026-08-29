@@ -8,21 +8,14 @@ _scheduler: BackgroundScheduler | None = None
 
 
 def _run_sync() -> None:
-    import database
-    from email_client import EmailSyncError, fetch_invoices_from_mailbox
+    from sync_service import get_sync_status, start_sync
 
-    try:
-        database.init_db()
-        result = fetch_invoices_from_mailbox()
-        for invoice in result["invoices"]:
-            database.upsert_invoice(invoice)
-        logger.info(
-            "Sincronización automática: %s correos, %s facturas",
-            result["scanned"],
-            len(result["invoices"]),
-        )
-    except EmailSyncError as exc:
-        logger.warning("Sincronización automática fallida: %s", exc)
+    status = get_sync_status()
+    if status.get("running"):
+        logger.info("Sincronización ya en curso, omitiendo")
+        return
+    start_sync()
+    logger.info("Sincronización automática iniciada")
 
 
 def start_scheduler() -> None:

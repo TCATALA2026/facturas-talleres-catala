@@ -1,6 +1,8 @@
 import email
 import imaplib
+from collections.abc import Callable
 from email.message import Message
+from typing import Any
 
 from config import EMAIL_ACCOUNTS, IMAP_PORT, IMAP_SERVER, RECIPIENT_NAME
 from invoice_parser import (
@@ -19,9 +21,32 @@ class EmailSyncError(Exception):
 
 
 def fetch_invoices_from_mailbox() -> dict:
-    """
-    Lee TODOS los correos de todas las cuentas configuradas, en modo solo lectura.
-    """
+    """Compatibilidad: sincronización completa en bloque."""
+    invoices: list[dict] = []
+    totals = {"scanned": 0, "pdfs_checked": 0, "accounts": []}
+
+    def on_invoice(inv: dict[str, Any]) -> bool:
+        invoices.append(inv.copy())
+        return True
+
+    def on_progress(data: dict[str, Any]) -> None:
+        totals["scanned"] = data.get("scanned", 0)
+        totals["pdfs_checked"] = data.get("pdfs_checked", 0)
+
+    sync_mailboxes(on_progress=on_progress, on_invoice=on_invoice)
+    totals["accounts"] = [a["address"] for a in EMAIL_ACCOUNTS]
+    return {
+        "invoices": invoices,
+        "scanned": totals["scanned"],
+        "pdfs_checked": totals["pdfs_checked"],
+        "accounts": totals["accounts"],
+    }
+
+
+def sync_mailboxes(
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
+    on_invoice: Callable[[dict[str, Any]], bool] | None = None,
+) -> None:
     if not EMAIL_ACCOUNTS:
         raise EmailSyncError(
             "Configura EMAIL_ACCOUNTS en el archivo .env "
@@ -33,10 +58,8 @@ def fetch_invoices_from_mailbox() -> dict:
             "(como aparece en las facturas)"
         )
 
-    all_invoices: list[dict] = []
     total_scanned = 0
     total_pdfs = 0
-    accounts_ok: list[str] = []
 
     for account in EMAIL_ACCOUNTS:
         address = account["address"]
@@ -47,25 +70,31 @@ def fetch_invoices_from_mailbox() -> dict:
                 "Añade EMAIL_PASSWORD en .env o inclúyela en EMAIL_ACCOUNTS."
             )
 
-        result = _fetch_account(address, password)
-        all_invoices.extend(result["invoices"])
+        result = _fetch_account(
+            address,
+            password,
+            on_invoice=on_invoice,
+            on_progress=lambda local: on_progress and on_progress(
+                {
+                    "account": address,
+                    "scanned": total_scanned + local["scanned"],
+                    "pdfs_checked": total_pdfs + local["pdfs_checked"],
+                }
+            ),
+        )
         total_scanned += result["scanned"]
         total_pdfs += result["pdfs_checked"]
-        accounts_ok.append(address)
-
-    return {
-        "invoices": all_invoices,
-        "scanned": total_scanned,
-        "pdfs_checked": total_pdfs,
-        "accounts": accounts_ok,
-    }
 
 
-def _fetch_account(address: str, password: str) -> dict:
+def _fetch_account(
+    address: str,
+    password: str,
+    on_invoice: Callable[[dict[str, Any]], bool] | None = None,
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict:
     mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
     scanned = 0
     pdfs_checked = 0
-    invoices: list[dict] = []
 
     try:
         mail.login(address, password)
@@ -93,22 +122,20 @@ def _fetch_account(address: str, password: str) -> dict:
 
             scanned += 1
             msg = email.message_from_bytes(raw_email)
-
-            matching_pdfs = _matching_invoice_pdfs(msg)
             pdfs_checked += len(extract_pdf_attachments(msg))
 
-            if not matching_pdfs:
+            if on_progress and scanned % 5 == 0:
+                on_progress({"scanned": scanned, "pdfs_checked": pdfs_checked})
+
+            matching = _matching_invoice_pdfs(msg)
+            if not matching:
                 continue
 
-            parsed = _parse_message(address, uid_str, msg, matching_pdfs)
-            if parsed:
-                invoices.append(parsed)
+            parsed = _parse_message(address, uid_str, msg, matching)
+            if parsed and on_invoice:
+                on_invoice(parsed)
 
-        return {
-            "invoices": invoices,
-            "scanned": scanned,
-            "pdfs_checked": pdfs_checked,
-        }
+        return {"scanned": scanned, "pdfs_checked": pdfs_checked}
     except imaplib.IMAP4.error as exc:
         raise EmailSyncError(f"Error en {address}: {exc}") from exc
     finally:
@@ -118,28 +145,29 @@ def _fetch_account(address: str, password: str) -> dict:
             pass
 
 
-def _matching_invoice_pdfs(msg: Message) -> list[str]:
+def _matching_invoice_pdfs(msg: Message) -> list[tuple[str, str, bytes]]:
     subject = decode_mime_header(msg.get("Subject"))
-    matching: list[str] = []
-    for _filename, pdf_bytes in extract_pdf_attachments(msg):
+    matching: list[tuple[str, str, bytes]] = []
+    for filename, pdf_bytes in extract_pdf_attachments(msg):
         text = extract_text_from_pdf(pdf_bytes)
         if (
             text
             and is_invoice_for_recipient(text)
             and is_purchase_invoice(text, subject)
         ):
-            matching.append(text)
+            matching.append((text, filename, pdf_bytes))
     return matching
 
 
 def _parse_message(
-    mailbox: str, uid: str, msg: Message, pdf_texts: list[str]
+    mailbox: str, uid: str, msg: Message, pdf_items: list[tuple[str, str, bytes]]
 ) -> dict | None:
     subject = decode_mime_header(msg.get("Subject"))
     from_header = decode_mime_header(msg.get("From"))
     received_at = format_received_date(msg.get("Date"))
 
-    return parse_invoice_email(
+    pdf_texts = [item[0] for item in pdf_items]
+    parsed = parse_invoice_email(
         uid=f"{mailbox.lower()}:{uid}",
         mailbox=mailbox,
         subject=subject,
@@ -147,3 +175,11 @@ def _parse_message(
         pdf_texts=pdf_texts,
         received_at=received_at,
     )
+    if not parsed:
+        return None
+
+    # Guardar el PDF principal (el primero que coincide)
+    _, pdf_name, pdf_bytes = pdf_items[0]
+    parsed["pdf_original_name"] = pdf_name
+    parsed["pdf_bytes"] = pdf_bytes
+    return parsed

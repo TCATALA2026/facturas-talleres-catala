@@ -46,6 +46,14 @@ def init_db() -> None:
             conn.execute("ALTER TABLE invoices ADD COLUMN is_expense INTEGER DEFAULT 1")
         except sqlite3.OperationalError:
             pass
+        try:
+            conn.execute("ALTER TABLE invoices ADD COLUMN pdf_filename TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE invoices ADD COLUMN pdf_original_name TEXT")
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
 
@@ -66,7 +74,9 @@ def upsert_invoice(data: dict[str, Any]) -> bool:
                     invoice_number = COALESCE(?, invoice_number),
                     subject = ?,
                     mailbox = COALESCE(?, mailbox),
-                    is_expense = ?
+                    is_expense = ?,
+                    pdf_filename = COALESCE(?, pdf_filename),
+                    pdf_original_name = COALESCE(?, pdf_original_name)
                 WHERE email_uid = ?
                 """,
                 (
@@ -78,6 +88,8 @@ def upsert_invoice(data: dict[str, Any]) -> bool:
                     data.get("subject"),
                     data.get("mailbox"),
                     1 if data.get("is_expense", True) else 0,
+                    data.get("pdf_filename"),
+                    data.get("pdf_original_name"),
                     data["email_uid"],
                 ),
             )
@@ -89,8 +101,8 @@ def upsert_invoice(data: dict[str, Any]) -> bool:
             INSERT INTO invoices (
                 email_uid, mailbox, supplier, amount, currency, due_date,
                 invoice_date, invoice_number, subject, received_at, status,
-                is_expense, source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                is_expense, source, pdf_filename, pdf_original_name
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data["email_uid"],
@@ -106,6 +118,8 @@ def upsert_invoice(data: dict[str, Any]) -> bool:
                 data.get("status", "pending"),
                 1 if data.get("is_expense", True) else 0,
                 data.get("source", "email"),
+                data.get("pdf_filename"),
+                data.get("pdf_original_name"),
             ),
         )
         conn.commit()
@@ -184,6 +198,14 @@ def get_summary(expenses_only: bool = True) -> dict[str, Any]:
     }
 
 
+def get_invoice(invoice_id: int) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM invoices WHERE id = ?", (invoice_id,)
+        ).fetchone()
+        return _row_to_dict(row) if row else None
+
+
 def update_status(invoice_id: int, status: str) -> bool:
     if status not in ("pending", "paid", "cancelled"):
         return False
@@ -202,6 +224,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     d["fiscal_date"] = _fiscal_date(d)
     d["year"], d["quarter"] = _year_quarter(d["fiscal_date"])
     d["quarter_label"] = _quarter_label(d["year"], d["quarter"])
+    d["has_pdf"] = bool(d.get("pdf_filename"))
     return d
 
 

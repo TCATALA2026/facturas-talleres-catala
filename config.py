@@ -16,6 +16,8 @@ IMAP_PORT = int(os.getenv("IMAP_PORT", "993"))
 RECIPIENT_NAME = os.getenv("RECIPIENT_NAME", "")
 
 DATABASE_PATH = BASE_DIR / "data" / "facturas.db"
+PDF_DIR = DATA_DIR / "pdfs"
+PDF_DIR.mkdir(parents=True, exist_ok=True)
 
 # Contraseña compartida (si ambas cuentas usan la misma)
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")

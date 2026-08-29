@@ -3,39 +3,44 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#3b82f6">
+  <meta name="theme-color" content="#000000">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Facturas">
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
-  <link rel="icon" href="/static/icons/icon-192.svg">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+  <link rel="icon" href="/static/icons/favicon.png">
   <link rel="stylesheet" href="/static/app.css">
   <title>Facturas — Talleres Catala</title>
 </head>
 <body data-page="facturas">
   <div class="container">
-    <div id="installBanner" class="install-banner">
-      <strong>📲 Acceso directo en tu iPhone</strong>
-      <p style="margin:0.35rem 0 0">1. Pulsa <strong>Compartir</strong> ⬆️ en Safari → <strong>Añadir a pantalla de inicio</strong></p>
-      <p style="margin:0.35rem 0 0;color:var(--muted);font-size:0.8rem">Si usas la versión en la nube, abre la URL de Render (no hace falta PC). Ver DEPLOY.md</p>
-    </div>
-
     <header>
-      <h1>Facturas</h1>
-      <p class="subtitle">Talleres Catala Automotive SL · Gastos que pagas tú</p>
-      <div class="header-actions-desktop" style="margin-top:0.75rem;display:flex;gap:0.5rem;">
+      <div class="brand">
+        <img src="/static/icons/logo.jpg" alt="Talleres Catala" class="brand-logo">
+        <div class="brand-text">
+          <h1>Facturas</h1>
+          <p class="subtitle">Talleres Catala Automotive SL</p>
+        </div>
+      </div>
+      <div class="header-actions-desktop">
         <a href="/trimestres" class="btn btn-secondary">Trimestres Hacienda</a>
         <button id="syncBtnDesktop" {% if not configured %}disabled{% endif %}>Sincronizar correo</button>
       </div>
       <div class="header-actions-mobile">
-        <button id="syncBtnMobile" class="btn" style="width:100%" {% if not configured %}disabled{% endif %}>Sincronizar correo</button>
+        <button id="syncBtnMobile" {% if not configured %}disabled{% endif %}>Sincronizar correo</button>
       </div>
     </header>
 
+    <div id="syncPanel" class="sync-panel">
+      <h3>Sincronizando correo…</h3>
+      <div class="sync-meta" id="syncMeta">Preparando…</div>
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    </div>
+
     <div class="cards">
       <div class="card pending">
-        <div class="card-label">Pendientes</div>
+        <div class="card-label">Pendientes de pago</div>
         <div class="card-value" id="pendingCount">{{ summary.pending_count }}</div>
         <div class="card-sub"><span id="pendingTotal">{{ "%.2f"|format(summary.pending_total) }}</span> €</div>
       </div>
@@ -52,7 +57,10 @@
     </div>
 
     <div class="panel">
-      <div class="panel-header"><h2>Listado de facturas</h2></div>
+      <div class="panel-header">
+        <h2>Facturas de gasto</h2>
+        <span class="panel-count" id="invoiceCount">{{ invoices|length }} facturas</span>
+      </div>
       <div class="filters">
         <button class="filter-btn active" data-filter="all">Todas</button>
         <button class="filter-btn" data-filter="pending">Pendientes</button>
@@ -70,16 +78,26 @@
               <span class="amount">{% if inv.amount %}{{ "%.2f"|format(inv.amount) }} €{% else %}—{% endif %}</span>
             </div>
             <div class="invoice-card-meta">
-              <span>Vence: {% if inv.due_date %}{{ inv.due_date.split('-')[2] }}/{{ inv.due_date.split('-')[1] }}/{{ inv.due_date.split('-')[0] }}{% else %}—{% endif %}</span>
-              <span>{{ inv.mailbox.split('@')[0] if inv.mailbox else '—' }}</span>
+              <div><span class="meta-label">Vencimiento</span>{% if inv.due_date %}{{ inv.due_date.split('-')[2] }}/{{ inv.due_date.split('-')[1] }}/{{ inv.due_date.split('-')[0] }}{% else %}—{% endif %}</div>
+              <div><span class="meta-label">Nº factura</span>{{ inv.invoice_number or '—' }}</div>
+              <div><span class="meta-label">Cuenta</span>{{ inv.mailbox.split('@')[0] if inv.mailbox else '—' }}</div>
+              <div><span class="meta-label">Fecha factura</span>{% if inv.invoice_date %}{{ inv.invoice_date.split('-')[2] }}/{{ inv.invoice_date.split('-')[1] }}/{{ inv.invoice_date.split('-')[0] }}{% else %}—{% endif %}</div>
             </div>
             <div class="invoice-card-actions">
               <span class="badge badge-{{ 'overdue' if inv.status_label == 'Vencida' else 'soon' if inv.status_label == 'Vence pronto' else 'paid' if inv.status == 'paid' else 'cancelled' if inv.status == 'cancelled' else 'pending' }}">{{ inv.status_label }}</span>
-              <select class="status-select" data-id="{{ inv.id }}">
-                <option value="pending" {% if inv.status == 'pending' %}selected{% endif %}>Pendiente</option>
-                <option value="paid" {% if inv.status == 'paid' %}selected{% endif %}>Pagada</option>
-                <option value="cancelled" {% if inv.status == 'cancelled' %}selected{% endif %}>Anulada</option>
-              </select>
+              <div class="invoice-card-right">
+                {% if inv.has_pdf %}
+                <a class="btn btn-pdf" href="/api/invoices/{{ inv.id }}/pdf" download>
+                  <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 10v6m0 0l-3-3m3 3l3-3M7 7h10a2 2 0 012 2v8a2 2 0 01-2 2H7a2 2 0 01-2-2V9a2 2 0 012-2z"/></svg>
+                  PDF
+                </a>
+                {% endif %}
+                <select class="status-select" data-id="{{ inv.id }}">
+                  <option value="pending" {% if inv.status == 'pending' %}selected{% endif %}>Pendiente</option>
+                  <option value="paid" {% if inv.status == 'paid' %}selected{% endif %}>Pagada</option>
+                  <option value="cancelled" {% if inv.status == 'cancelled' %}selected{% endif %}>Anulada</option>
+                </select>
+              </div>
             </div>
           </div>
           {% endfor %}
@@ -87,17 +105,18 @@
         <table class="desktop-table">
           <thead>
             <tr>
-              <th>Proveedor</th><th>Importe</th><th>Vencimiento</th><th>Cuenta</th><th>Estado</th><th></th>
+              <th>Proveedor</th><th>Importe</th><th>Vencimiento</th><th>Nº Factura</th><th>Estado</th><th>PDF</th><th></th>
             </tr>
           </thead>
           <tbody id="invoiceBody">
             {% for inv in invoices %}
             <tr data-status="{{ inv.status }}" data-label="{{ inv.status_label }}">
-              <td><strong>{{ inv.supplier }}</strong></td>
+              <td><strong>{{ inv.supplier }}</strong><br><span style="color:var(--muted);font-size:0.8rem">{{ inv.mailbox.split('@')[0] if inv.mailbox else '—' }}</span></td>
               <td class="amount">{% if inv.amount %}{{ "%.2f"|format(inv.amount) }} €{% else %}—{% endif %}</td>
               <td>{% if inv.due_date %}{{ inv.due_date.split('-')[2] }}/{{ inv.due_date.split('-')[1] }}/{{ inv.due_date.split('-')[0] }}{% else %}—{% endif %}</td>
-              <td>{{ inv.mailbox.split('@')[0] if inv.mailbox else '—' }}</td>
+              <td>{{ inv.invoice_number or '—' }}</td>
               <td><span class="badge badge-{{ 'overdue' if inv.status_label == 'Vencida' else 'soon' if inv.status_label == 'Vence pronto' else 'paid' if inv.status == 'paid' else 'cancelled' if inv.status == 'cancelled' else 'pending' }}">{{ inv.status_label }}</span></td>
+              <td>{% if inv.has_pdf %}<a class="btn btn-pdf" href="/api/invoices/{{ inv.id }}/pdf" download>Descargar</a>{% else %}—{% endif %}</td>
               <td>
                 <select class="status-select" data-id="{{ inv.id }}">
                   <option value="pending" {% if inv.status == 'pending' %}selected{% endif %}>Pendiente</option>
@@ -110,7 +129,7 @@
           </tbody>
         </table>
         {% else %}
-        <div class="empty">No hay facturas. Pulsa <strong>Sincronizar</strong> abajo.</div>
+        <div class="empty">No hay facturas todavía.<br>Pulsa <strong>Sincronizar correo</strong> para leer Hostalia.</div>
         {% endif %}
       </div>
     </div>
@@ -135,12 +154,17 @@
   <script src="/static/pwa.js"></script>
   <script>
     const toast = document.getElementById('toast');
+    const syncPanel = document.getElementById('syncPanel');
+    const syncMeta = document.getElementById('syncMeta');
+    const progressFill = document.getElementById('progressFill');
     const syncBtns = ['syncBtnDesktop','syncBtnMobile','syncBtnNav'].map(id => document.getElementById(id)).filter(Boolean);
+    let pollTimer = null;
+    let currentFilter = 'all';
 
     function showToast(msg, type = 'success') {
       toast.textContent = msg;
       toast.className = `toast show ${type}`;
-      setTimeout(() => toast.className = 'toast', 3500);
+      setTimeout(() => toast.className = 'toast', 4000);
     }
 
     function formatDate(iso) {
@@ -157,6 +181,13 @@
       return 'pending';
     }
 
+    function pdfButton(inv) {
+      if (!inv.has_pdf) return '';
+      return `<a class="btn btn-pdf" href="/api/invoices/${inv.id}/pdf" download>
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 10v6m0 0l-3-3m3 3l3-3M7 7h10a2 2 0 012 2v8a2 2 0 01-2 2H7a2 2 0 01-2-2V9a2 2 0 012-2z"/></svg>
+        PDF</a>`;
+    }
+
     function updateSummary(s) {
       ['pending','soon','overdue'].forEach(k => {
         document.getElementById(k+'Count').textContent = s[k+'_count'];
@@ -165,9 +196,10 @@
     }
 
     function renderInvoices(invoices) {
+      document.getElementById('invoiceCount').textContent = `${invoices.length} facturas`;
       const wrap = document.getElementById('tableWrap');
       if (!invoices.length) {
-        wrap.innerHTML = '<div class="empty">No hay facturas. Pulsa <strong>Sincronizar</strong>.</div>';
+        wrap.innerHTML = '<div class="empty">No hay facturas todavía.<br>Pulsa <strong>Sincronizar correo</strong> para leer Hostalia.</div>';
         return;
       }
       const cards = invoices.map(inv => {
@@ -175,23 +207,33 @@
         const amt = inv.amount != null ? Number(inv.amount).toFixed(2)+' €' : '—';
         return `<div class="invoice-card" data-status="${inv.status}" data-label="${inv.status_label}">
           <div class="invoice-card-top"><strong>${inv.supplier}</strong><span class="amount">${amt}</span></div>
-          <div class="invoice-card-meta"><span>Vence: ${formatDate(inv.due_date)}</span><span>${cuenta}</span></div>
+          <div class="invoice-card-meta">
+            <div><span class="meta-label">Vencimiento</span>${formatDate(inv.due_date)}</div>
+            <div><span class="meta-label">Nº factura</span>${inv.invoice_number || '—'}</div>
+            <div><span class="meta-label">Cuenta</span>${cuenta}</div>
+            <div><span class="meta-label">Fecha factura</span>${formatDate(inv.invoice_date)}</div>
+          </div>
           <div class="invoice-card-actions">
             <span class="badge badge-${badgeClass(inv)}">${inv.status_label}</span>
-            <select class="status-select" data-id="${inv.id}">
-              <option value="pending" ${inv.status==='pending'?'selected':''}>Pendiente</option>
-              <option value="paid" ${inv.status==='paid'?'selected':''}>Pagada</option>
-              <option value="cancelled" ${inv.status==='cancelled'?'selected':''}>Anulada</option>
-            </select>
+            <div class="invoice-card-right">${pdfButton(inv)}
+              <select class="status-select" data-id="${inv.id}">
+                <option value="pending" ${inv.status==='pending'?'selected':''}>Pendiente</option>
+                <option value="paid" ${inv.status==='paid'?'selected':''}>Pagada</option>
+                <option value="cancelled" ${inv.status==='cancelled'?'selected':''}>Anulada</option>
+              </select>
+            </div>
           </div></div>`;
       }).join('');
       const rows = invoices.map(inv => {
         const cuenta = inv.mailbox ? inv.mailbox.split('@')[0] : '—';
         const amt = inv.amount != null ? Number(inv.amount).toFixed(2)+' €' : '—';
+        const pdf = inv.has_pdf ? `<a class="btn btn-pdf" href="/api/invoices/${inv.id}/pdf" download>Descargar</a>` : '—';
         return `<tr data-status="${inv.status}" data-label="${inv.status_label}">
-          <td><strong>${inv.supplier}</strong></td><td class="amount">${amt}</td>
-          <td>${formatDate(inv.due_date)}</td><td>${cuenta}</td>
+          <td><strong>${inv.supplier}</strong><br><span style="color:var(--muted);font-size:0.8rem">${cuenta}</span></td>
+          <td class="amount">${amt}</td><td>${formatDate(inv.due_date)}</td>
+          <td>${inv.invoice_number || '—'}</td>
           <td><span class="badge badge-${badgeClass(inv)}">${inv.status_label}</span></td>
+          <td>${pdf}</td>
           <td><select class="status-select" data-id="${inv.id}">
             <option value="pending" ${inv.status==='pending'?'selected':''}>Pendiente</option>
             <option value="paid" ${inv.status==='paid'?'selected':''}>Pagada</option>
@@ -199,13 +241,12 @@
           </select></td></tr>`;
       }).join('');
       wrap.innerHTML = `<div class="invoice-cards" id="invoiceCards">${cards}</div>
-        <table class="desktop-table"><thead><tr><th>Proveedor</th><th>Importe</th><th>Vencimiento</th><th>Cuenta</th><th>Estado</th><th></th></tr></thead>
+        <table class="desktop-table"><thead><tr><th>Proveedor</th><th>Importe</th><th>Vencimiento</th><th>Nº Factura</th><th>Estado</th><th>PDF</th><th></th></tr></thead>
         <tbody id="invoiceBody">${rows}</tbody></table>`;
       bindStatusSelects();
       applyFilter(currentFilter);
     }
 
-    let currentFilter = 'all';
     document.querySelectorAll('.filter-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
@@ -241,20 +282,74 @@
     }
     bindStatusSelects();
 
+    function setSyncUi(running) {
+      syncBtns.forEach(b => { b.disabled = running || {{ 'false' if configured else 'true' }}; });
+      syncPanel.classList.toggle('active', running);
+    }
+
+    async function pollSync() {
+      try {
+        const res = await fetch('/api/sync/status');
+        const data = await res.json();
+        if (data.summary) updateSummary(data.summary);
+
+        if (data.running) {
+          const pct = Math.min(95, Math.max(5, data.scanned / 3));
+          progressFill.style.width = pct + '%';
+          syncMeta.textContent = `${data.scanned} correos revisados · ${data.invoices_found} facturas · ${data.current_account || 'Hostalia'}`;
+          if (data.invoices_found > 0) {
+            const invRes = await fetch('/api/invoices');
+            const invData = await invRes.json();
+            renderInvoices(invData.invoices);
+          }
+          pollTimer = setTimeout(pollSync, 2000);
+          return;
+        }
+
+        progressFill.style.width = '100%';
+        setSyncUi(false);
+        if (data.error) {
+          showToast(data.error, 'error');
+        } else {
+          const invRes = await fetch('/api/invoices');
+          const invData = await invRes.json();
+          renderInvoices(invData.invoices);
+          showToast(`Listo: ${data.invoices_found} facturas (${data.new_count} nuevas)`);
+        }
+        setTimeout(() => syncPanel.classList.remove('active'), 1500);
+      } catch {
+        setSyncUi(false);
+        showToast('Error de conexión', 'error');
+      }
+    }
+
     async function doSync() {
-      syncBtns.forEach(b => { b.disabled = true; });
+      setSyncUi(true);
+      progressFill.style.width = '5%';
+      syncMeta.textContent = 'Conectando con Hostalia…';
       try {
         const res = await fetch('/api/sync', {method:'POST'});
         const data = await res.json();
-        if (data.ok) {
-          updateSummary(data.summary);
-          renderInvoices(data.invoices);
-          showToast(`${data.scanned} correos · ${data.new} nuevas`);
-        } else showToast(data.error || 'Error', 'error');
-      } catch { showToast('Error de conexión', 'error'); }
-      finally { syncBtns.forEach(b => { b.disabled = false; }); }
+        if (!data.ok) {
+          setSyncUi(false);
+          showToast('No se pudo iniciar', 'error');
+          return;
+        }
+        pollSync();
+      } catch {
+        setSyncUi(false);
+        showToast('Error de conexión', 'error');
+      }
     }
+
     syncBtns.forEach(b => b.addEventListener('click', doSync));
+
+    fetch('/api/sync/status').then(r => r.json()).then(data => {
+      if (data.running) {
+        setSyncUi(true);
+        pollSync();
+      }
+    });
   </script>
 </body>
 </html>
