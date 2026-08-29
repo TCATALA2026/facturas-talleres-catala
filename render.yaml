@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: facturas-talleres-catala
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/config
+    envVars:
+      - key: EMAIL_ACCOUNTS
+        sync: false
+      - key: RECIPIENT_NAME
+        value: Talleres Catala Automotive SL
+      - key: IMAP_SERVER
+        value: imap.servidor-correo.net
+      - key: IMAP_PORT
+        value: "993"
+      - key: AUTO_SYNC_HOURS
+        value: "4"
+    disk:
+      name: facturas-data
+      mountPath: /app/data
+      sizeGB: 1

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#3b82f6">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Facturas">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
+  <link rel="stylesheet" href="/static/app.css">
+  <title>Trimestres — Facturas</title>
+</head>
+<body data-page="trimestres">
+  <div class="container">
+    <header>
+      <h1>Trimestres Hacienda</h1>
+      <p class="subtitle">{{ recipient_name }}</p>
+    </header>
+
+    <div class="note">
+      Solo <strong>facturas de gasto</strong> que pagas tú, agrupadas por trimestre fiscal.
+    </div>
+
+    <div class="toolbar">
+      <label>Ejercicio
+        <select id="yearSelect" onchange="changeYear(this.value)">
+          {% for y in years %}
+          <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <a class="btn btn-secondary" href="/api/export/trimestres.csv?year={{ selected_year }}">Descargar CSV</a>
+    </div>
+
+    <div class="summary-bar">
+      <div>
+        <div class="quarter-meta">Ejercicio {{ report.year }}</div>
+        <strong style="font-size:1.3rem;color:var(--success)">{{ report.year_count }} facturas</strong>
+      </div>
+      <div style="text-align:right">
+        <div class="quarter-meta">Total anual</div>
+        <strong style="font-size:1.3rem;color:var(--success)">{{ "%.2f"|format(report.year_total) }} €</strong>
+      </div>
+    </div>
+
+    {% for q_num in [1, 2, 3, 4] %}
+    {% set q = report.quarters[q_num] %}
+    <section class="quarter">
+      <div class="quarter-header">
+        <div>
+          <h2>{{ q.label }}</h2>
+          <div class="quarter-meta">{{ q.count }} factura{% if q.count != 1 %}s{% endif %}</div>
+        </div>
+        <div class="quarter-total">{{ "%.2f"|format(q.total) }} €</div>
+      </div>
+      {% if q.invoices %}
+        {% for inv in q.invoices %}
+        <div class="invoice-card">
+          <div class="invoice-card-top">
+            <strong>{{ inv.supplier }}</strong>
+            <span class="amount">{% if inv.amount %}{{ "%.2f"|format(inv.amount) }} €{% else %}—{% endif %}</span>
+          </div>
+          <div class="invoice-card-meta">
+            <span>{% if inv.fiscal_date %}{{ inv.fiscal_date.split('-')[2] }}/{{ inv.fiscal_date.split('-')[1] }}/{{ inv.fiscal_date.split('-')[0] }}{% else %}—{% endif %}</span>
+            <span>{{ inv.invoice_number or '—' }}</span>
+            <span>{{ inv.mailbox.split('@')[0] if inv.mailbox else '—' }}</span>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty">Sin facturas en este trimestre</div>
+      {% endif %}
+    </section>
+    {% endfor %}
+  </div>
+
+  <nav class="bottom-nav">
+    <a href="/">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      Facturas
+    </a>
+    <a href="/trimestres" class="active">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+      Trimestres
+    </a>
+    <button type="button" class="nav-sync" onclick="location.href='/'">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+      Inicio
+    </button>
+  </nav>
+
+  <script src="/static/pwa.js"></script>
+  <script>
+    function changeYear(year) {
+      window.location.href = '/trimestres?year=' + year;
+    }
+  </script>
+</body>
+</html>
