@@ -39,6 +39,9 @@
     <div id="manualNote" class="note mode-manual">
       Modo manual: sube los PDF de tus facturas desde el iPhone. No hace falta conectar con Hostalia.
     </div>
+    <div id="syncNote" class="note mode-sync">
+      Lee Hostalia automáticamente: pulsa <strong>Sincronizar correo</strong>. Las facturas aparecen una a una conforme se detectan.
+    </div>
 
     <div id="syncPanel" class="sync-panel">
       <h3 id="syncPanelTitle">Sincronizando correo…</h3>
@@ -395,8 +398,6 @@
         showToast('Error de conexión', 'error');
       }
     }
-
-    syncBtns.forEach(b => b.addEventListener('click', doSync));
 
     async function uploadPdfs(fileList) {
       if (!fileList || !fileList.length) return;
